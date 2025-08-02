@@ -97,7 +97,8 @@ The UI uses React, react-toastify, and custom styles with transparent background
 
     Styling: Custom inline styles + bg.jpg image
 
-📬 Applicant
+## 📬 Applicant
 
 Made by Anuhya Mattaparthi
+
 email: anuhya.mattaparthi@gmail.com
