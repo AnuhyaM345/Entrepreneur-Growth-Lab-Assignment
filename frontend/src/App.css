@@ -36,3 +36,24 @@
     transform: rotate(360deg);
   }
 }
+
+.transparent-dropdown {
+  padding: 10px;
+  width: 300px;
+  border-radius: 5px;
+  background-color: transparent;
+  color: #fff;
+  border: 1px solid white;
+}
+
+/* Optional: hover/focus effects */
+.transparent-dropdown:focus {
+  outline: none;
+  border-color: #fff;
+}
+
+/* Styling <option> elements */
+.transparent-dropdown option {
+  background-color: rgba(0, 0, 0, 0.5); /* semi-transparent black */
+  color: #fff;
+}
