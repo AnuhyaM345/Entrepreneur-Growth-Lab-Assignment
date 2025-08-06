@@ -1,9 +1,10 @@
 // Backend API for Apify Actors
-//backend/index.js
+// backend/index.js
 
 const express = require("express");
 const axios = require("axios");
 const cors = require("cors");
+const puppeteer = require("puppeteer");
 require("dotenv").config();
 
 const app = express();
@@ -28,23 +29,21 @@ app.post("/api/actors", async (req, res) => {
   }
 });
 
-// === AI Fallback using OpenRouter ===
+// === AI fallback (OpenRouter) ===
 async function generateFallbackSchema(actorId) {
-  const prompt = `You are given an Apify actor ID: "${actorId}".
-  Generate a realistic example of the JSON input expected by this actor. Only return a valid JSON object that would be accepted by this actor when run.
-  Do not add any comments, markdown, or explanation. Just return the JSON input example.`;
+  const prompt = `You are given an Apify actor ID: "${actorId}". Generate a realistic example JSON input that this actor would accept. Return ONLY a JSON object.`;
 
   try {
     const aiRes = await axios.post(
       "https://openrouter.ai/api/v1/chat/completions",
       {
-        model: "openai/gpt-3.5-turbo", // you can change to another if needed
+        model: "openai/gpt-3.5-turbo",
         messages: [
-          { role: "system", content: "You are a JSON-generating assistant for Apify actors." },
-          { role: "user", content: prompt }
+          { role: "system", content: "You generate JSON inputs for Apify actors." },
+          { role: "user", content: prompt },
         ],
         temperature: 0.4,
-        max_tokens: 300
+        max_tokens: 300,
       },
       {
         headers: {
@@ -58,92 +57,118 @@ async function generateFallbackSchema(actorId) {
     return JSON.parse(message.trim());
   } catch (err) {
     console.error("❌ AI fallback failed:", err.message);
-    if (err.response?.data) console.error("📋 Response:", err.response.data);
-    throw new Error("AI could not generate fallback schema.");
+    throw new Error("AI generation failed.");
   }
 }
 
-// === Get schema with AI Fallback ===
+// === Helper to extract valid input from schema ===
+function extractRunnableInputFromSchema(schema) {
+  const result = {};
+
+  if (!schema?.properties) return result;
+
+  for (const key in schema.properties) {
+    const prop = schema.properties[key];
+
+    if ("prefill" in prop) {
+      result[key] = prop.prefill;
+    } else if ("default" in prop) {
+      result[key] = prop.default;
+    }
+  }
+
+  if (schema.required) {
+    schema.required.forEach((field) => {
+      if (!(field in result)) {
+        console.warn(`⚠️ Required field "${field}" missing in extracted input.`);
+      }
+    });
+  }
+
+  return result;
+}
+
+// === Get schema with all fallback logic ===
 app.post("/api/schema", async (req, res) => {
   const { apiKey, actorId } = req.body;
-  if (!apiKey || !actorId) {
-    return res.status(400).json({ error: "API Key and actor ID are required." });
-  }
-
-  const schemaURL = `https://api.apify.com/v2/acts/${actorId}/input-schema`;
-  const fallbackRunURL = `https://api.apify.com/v2/acts/${actorId}/runs/last?status=SUCCEEDED`;
-
-  console.log("📦 Fetching schema for:", actorId);
-
-  // Primary schema attempt
-  try {
-    const response = await axios.get(schemaURL, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-
-    const schema = response.data;
-    if (schema && schema.properties && Object.keys(schema.properties).length > 0) {
-      console.log("✅ Schema fetched from /input-schema.");
-      return res.json(schema);
-    } else {
-      throw new Error("Empty schema");
-    }
-  } catch {
-    console.warn("❌ Primary schema fetch failed. Trying fallback...");
-  }
-
-  // Fallback: fetch from last successful run
-  try {
-    const fallbackRes = await axios.get(fallbackRunURL, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-
-    const runId = fallbackRes.data?.data?.id;
-    if (!runId) throw new Error("No previous run ID found");
-    console.log("🧪 Found fallback run ID:", runId);
-
-    const runInfo = await axios.get(`https://api.apify.com/v2/actor-runs/${runId}`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-
-    const inputExample = runInfo.data?.data?.input;
-    if (inputExample && Object.keys(inputExample).length > 0) {
-      console.log("✅ Fallback input loaded from previous run.");
-      return res.json(inputExample);
-    }
-  } catch {
-    console.warn("❌ Fallback using last run failed.");
-  }
-
-  // Final fallback: AI
-  try {
-    const aiSchema = await generateFallbackSchema(actorId);
-    console.log("🤖 AI-generated fallback schema returned.");
-    return res.json(aiSchema);
-  } catch (err) {
-    return res.status(500).json({ error: "All methods failed to retrieve or generate schema." });
-  }
-});
-
-// === Run selected actor ===
-app.post("/api/run", async (req, res) => {
-  const { apiKey, actorId, input } = req.body;
-
   if (!apiKey || !actorId)
     return res.status(400).json({ error: "API Key and actor ID are required." });
 
-  console.log("🚀 Executing Actor...");
-  console.log("🔑 API Key (partial):", apiKey.slice(0, 8) + "...");
+  console.log("📦 Loading schema for:", actorId);
+
+  // 1. Try to get schema from full build metadata
+  try {
+    console.log("🔍 Fetching actor builds list...");
+    const buildsRes = await axios.get(`https://api.apify.com/v2/acts/${actorId}/builds`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+
+    const builds = buildsRes.data.data.items || [];
+    if (builds.length === 0) throw new Error("No builds found.");
+
+    const latestBuildMeta = builds[builds.length - 1];
+    const buildId = latestBuildMeta.id;
+
+    console.log("🛠 Latest build ID:", buildId);
+    console.log("📦 Build version:", latestBuildMeta.versionNumber || latestBuildMeta.buildNumber);
+
+    const buildDetailsRes = await axios.get(
+      `https://api.apify.com/v2/acts/${actorId}/builds/${buildId}`,
+      {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      }
+    );
+
+    const rawSchema = buildDetailsRes.data.data?.inputSchema;
+    console.log("📦 Raw inputSchema type:", typeof rawSchema);
+
+    let parsedSchema;
+    if (typeof rawSchema === "string") {
+      console.log("🧹 Parsing stringified inputSchema...");
+      parsedSchema = JSON.parse(rawSchema);
+    } else {
+      parsedSchema = rawSchema;
+    }
+
+    if (parsedSchema?.properties && Object.keys(parsedSchema.properties).length > 0) {
+      console.log("✅ Loaded inputSchema from full build metadata successfully.");
+      const runnableInput = extractRunnableInputFromSchema(parsedSchema);
+      return res.json(runnableInput);
+    } else {
+      throw new Error("Parsed schema is empty or malformed.");
+    }
+  } catch (err) {
+    console.warn("❌ Failed to load schema from build metadata:", err.message);
+  }
+
+  // 2. AI fallback
+  try {
+    console.log("🤖 Falling back to AI schema generation...");
+    const aiSchema = await generateFallbackSchema(actorId);
+    console.log("✅ AI-generated fallback schema loaded.");
+    return res.json(aiSchema);
+  } catch (err) {
+    console.warn("❌ AI fallback failed:", err.message);
+  }
+
+  console.error("💥 All schema resolution methods failed.");
+  return res.status(500).json({ error: "All schema fetch methods failed." });
+});
+
+// === Run actor ===
+app.post("/api/run", async (req, res) => {
+  const { apiKey, actorId, input } = req.body;
+  if (!apiKey || !actorId)
+    return res.status(400).json({ error: "API Key and actor ID are required." });
+
+  console.log("🚀 Initiating actor run...");
   console.log("🎯 Actor ID:", actorId);
-  console.log("📦 Input Payload:", JSON.stringify(input, null, 2));
 
   try {
-    const runResponse = await axios.post(
-      `https://api.apify.com/v2/acts/${actorId}/runs`,
-      {
-        memory: 512,
-        input,
-      },
+    console.log("📤 Sending run request to Apify...");
+    const runStart = await axios.post(
+      `https://api.apify.com/v2/acts/${actorId}/runs?memory=4096`,
+      input,
       {
         headers: {
           Authorization: `Bearer ${apiKey}`,
@@ -152,44 +177,50 @@ app.post("/api/run", async (req, res) => {
       }
     );
 
-    const runId = runResponse.data.data.id;
-    console.log(`⏳ Actor run started. Run ID: ${runId}`);
+    const runId = runStart.data.data.id;
+    console.log("🏃 Run started with ID:", runId);
 
-    let status = "READY";
-    let runData = null;
+    let status = "READY", runData = null;
 
+    console.log("⏳ Polling run status...");
     while (["READY", "RUNNING"].includes(status)) {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      const statusRes = await axios.get(`https://api.apify.com/v2/actor-runs/${runId}`, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-      });
-
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      const statusRes = await axios.get(
+        `https://api.apify.com/v2/actor-runs/${runId}`,
+        { headers: { Authorization: `Bearer ${apiKey}` } }
+      );
       runData = statusRes.data.data;
       status = runData.status;
-      console.log(`📡 Polling... Current status: ${status}`);
+      console.log(`📡 Status: ${status}`);
     }
 
     if (status === "SUCCEEDED") {
       const datasetId = runData.defaultDatasetId;
+      console.log("✅ Run succeeded. Fetching results from dataset:", datasetId);
+
       const outputRes = await axios.get(
         `https://api.apify.com/v2/datasets/${datasetId}/items`,
         { headers: { Authorization: `Bearer ${apiKey}` } }
       );
 
-      res.json({ result: outputRes.data });
+      console.log("📦 Results fetched. Returning to client.");
+      return res.json({ result: outputRes.data });
     } else {
-      console.error(`❌ Actor failed. Final status: ${status}`);
-      res.status(400).json({ error: `Actor did not complete successfully. Final status: ${status}` });
+      console.error("❌ Actor failed with status:", status);
+      return res.status(400).json({ error: `Actor failed with status: ${status}` });
     }
-  } catch (error) {
-    console.error("❌ Actor execution failed:", error.message);
-    res.status(500).json({
-      error: "Execution failed.",
-      details: error.response?.data || error.message,
-    });
+  } catch (err) {
+    console.error("🔥 Actor run failed:", err.message);
+    if (err.response) {
+      console.error("📥 Response Data:", err.response.data);
+      console.error("📊 Response Status:", err.response.status);
+      return res.status(err.response.status).json({
+        error: "Actor run failed",
+        details: err.response.data,
+      });
+    }
+    return res.status(500).json({ error: "Actor execution failed", details: err.message });
   }
 });
 
-app.listen(PORT, () =>
-  console.log(`🚀 Backend running on http://localhost:${PORT}`)
-);
+app.listen(PORT, () => console.log(`🚀 Backend running on http://localhost:${PORT}`));

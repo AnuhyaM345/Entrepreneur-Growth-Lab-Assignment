@@ -1,6 +1,8 @@
 // Frontend React App for Apify Actor Runner
 //frontend/src/App.js
 
+// frontend/src/App.js
+
 import React, { useState } from "react";
 import axios from "axios";
 import { ToastContainer, toast } from "react-toastify";
@@ -43,6 +45,8 @@ function App() {
     }
 
     setError("");
+    const loadingToast = toast.loading("📦 Loading schema...");
+
     try {
       const res = await axios.post("http://localhost:5000/api/schema", {
         apiKey,
@@ -50,20 +54,26 @@ function App() {
       });
 
       const data = res.data;
-      let formatted;
-
-      if (data && data.properties) {
-        formatted = JSON.stringify(data, null, 2);
-      } else {
-        formatted = JSON.stringify(data, null, 2);
-      }
+      const formatted = JSON.stringify(data, null, 2);
 
       setSchema(formatted);
       setSchemaValid(true);
       setResult(null);
-      toast.success("✅ Schema loaded!");
+
+      toast.update(loadingToast, {
+        render: "✅ Schema loaded successfully!",
+        type: "success",
+        isLoading: false,
+        autoClose: 3000,
+      });
     } catch (err) {
       console.error("❌ Schema fetch error:", err);
+      toast.update(loadingToast, {
+        render: "❌ Failed to load schema.",
+        type: "error",
+        isLoading: false,
+        autoClose: 3000,
+      });
       setError("❌ Failed to fetch schema.");
     }
   };
@@ -86,21 +96,39 @@ function App() {
 
   let input;
   try {
-    const parsed = JSON.parse(schema);
-    if (parsed && parsed.properties && typeof parsed.properties === "object") {
-      input = {};
-      for (const key of Object.keys(parsed.properties)) {
-        input[key] = parsed.properties[key].prefill || "";
+    input = JSON.parse(schema);
+
+    // Fix boolean fields if they are accidentally passed as strings
+    const booleanFields = [
+      "keepUrlFragments", "respectRobotsTxtFile", "debugLog", "ignoreSslErrors",
+      "forceResponseEncoding", "downloadMedia", "downloadCss", "closeCookieModals",
+      "headless", "browserLog", "useChrome", "ignoreCorsAndCsp"
+    ];
+    booleanFields.forEach((key) => {
+      if (key in input) {
+        if (typeof input[key] === "string") {
+          input[key] = input[key].toLowerCase() === "true";
+        }
       }
-    } else {
-      input = parsed;
+    });
+
+    // Ensure startUrls is an array of objects with "url"
+    if (input.startUrls && Array.isArray(input.startUrls)) {
+      input.startUrls = input.startUrls.map((url) =>
+        typeof url === "string" ? { url } : url
+      );
     }
+
+    // Fix proxyConfiguration if passed as a string
+    if (input.proxyConfiguration && typeof input.proxyConfiguration === "string") {
+      input.proxyConfiguration = { useApifyProxy: true };
+    }
+
   } catch {
     setError("❌ Invalid JSON input.");
     return;
   }
 
-  // Show loading toast
   const loadingToast = toast.info("⏳ Please wait, running the actor...", {
     autoClose: false,
     closeOnClick: false,
@@ -116,123 +144,116 @@ function App() {
     });
 
     setResult(res.data.result);
-    toast.dismiss(loadingToast); // Dismiss the loading toast
-    toast.success("🎉 Actor run successful!");
+    toast.dismiss(loadingToast);
+    toast.success("🎉 Actor run completed! Check the output below.");
   } catch (err) {
     console.error("❌ Run failed:", err);
-    toast.dismiss(loadingToast); // Dismiss loading toast on error
+    toast.dismiss(loadingToast);
     setError("❌ Failed to run actor.");
   }
 };
 
 
   return (
-  <div
-    style={{
-      backgroundImage: `url('/bg.jpg')`,
-      backgroundSize: "cover",
-      backgroundPosition: "center",
-      backgroundRepeat: "no-repeat",
-      backgroundAttachment: "fixed",
-      minHeight: "100vh",
-      width: "100%",
-    }}
-  >
     <div
       style={{
-        backgroundColor: "transparent", 
+        backgroundImage: `url('/bg.jpg')`,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+        backgroundRepeat: "no-repeat",
+        backgroundAttachment: "fixed",
         minHeight: "100vh",
-        padding: "40px",
+        width: "100%",
       }}
     >
-      <div style={styles.container}>
-        <h2 style={styles.title}>🎬 Apify Actor Runner</h2>
+      <div style={{ backgroundColor: "transparent", minHeight: "100vh", padding: "40px" }}>
+        <div style={styles.container}>
+          <h2 style={styles.title}>🎬 Apify Actor Runner</h2>
 
-        <div style={styles.inputGroup}>
-          <input
-            type="text"
-            placeholder="🔑 Enter Apify API Key"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            style={styles.input}
-          />
-          <button onClick={handleGetActors} style={styles.button}>
-            Fetch Actors
-          </button>
-        </div>
-
-        {actors.length > 0 && (
           <div style={styles.inputGroup}>
-            <select
-              onChange={handleActorChange}
-              value={actorId}
-              className="transparent-dropdown"
-            >
-              <option>Select...</option>
-              {actors.map((actor) => (
-                <option key={actor.id} value={`${actor.username}~${actor.name}`}>
-                  {actor.name}
-                </option>
-              ))}
-            </select>
-            <button onClick={handleGetSchema} disabled={!actorId} style={styles.button}>
-              Load Schema
-            </button>
-          </div>
-        )}
-
-        {actorId && (
-          <div style={{ marginBottom: "20px" }}>
-            <h4 style={styles.subTitle}>📝 Input Schema (Editable)</h4>
-            <textarea
-              value={schema}
-              onChange={handleSchemaChange}
-              rows={18}
-              style={{
-                ...styles.textarea,
-                border: schemaValid ? "1px solid white" : "2px solid red",
-                backgroundColor: schemaValid ? "transparent" : "transaprent",
-                color: "#eaeaea",
-              }}
+            <input
+              type="text"
+              placeholder="🔑 Enter Apify API Key"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              style={styles.input}
             />
-            {!schemaValid && <p style={{ color: "red" }}>⚠️ Invalid JSON</p>}
-            <button
-              onClick={handleRunActor}
-              disabled={!schemaValid}
-              style={styles.runButton}
-            >
-              ▶️ Run Actor
+            <button onClick={handleGetActors} style={styles.button}>
+              Fetch Actors
             </button>
           </div>
-        )}
 
-        {result && (
-          <div style={{ marginTop: "30px" }}>
-            <h4 style={styles.outputTitle}>
-              ✅ Output
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(JSON.stringify(result, null, 2));
-                  toast.info("📋 Output copied!");
-                }}
-                style={styles.copyButton}
+          {actors.length > 0 && (
+            <div style={styles.inputGroup}>
+              <select
+                onChange={handleActorChange}
+                value={actorId}
+                className="transparent-dropdown"
               >
-                📋 Copy
+                <option>Select...</option>
+                {actors.map((actor) => (
+                  <option key={actor.id} value={`${actor.username}~${actor.name}`}>
+                    {actor.name}
+                  </option>
+                ))}
+              </select>
+              <button onClick={handleGetSchema} disabled={!actorId} style={styles.button}>
+                Load Schema
               </button>
-            </h4>
-            <div style={styles.outputBox}>
-              <pre>{JSON.stringify(result, null, 2)}</pre>
             </div>
-          </div>
-        )}
+          )}
 
-        <ToastContainer position="top-right" autoClose={3000} />
-        {error && <p style={{ color: "red", marginTop: "20px" }}>{error}</p>}
+          {actorId && (
+            <div style={{ marginBottom: "20px" }}>
+              <h4 style={styles.subTitle}>📝 Input Schema (Editable)</h4>
+              <textarea
+                value={schema}
+                onChange={handleSchemaChange}
+                rows={18}
+                style={{
+                  ...styles.textarea,
+                  border: schemaValid ? "1px solid white" : "2px solid red",
+                  backgroundColor: schemaValid ? "transparent" : "transparent",
+                  color: "#eaeaea",
+                }}
+              />
+              {!schemaValid && <p style={{ color: "red" }}>⚠️ Invalid JSON</p>}
+              <button
+                onClick={handleRunActor}
+                disabled={!schemaValid}
+                style={styles.runButton}
+              >
+                ▶️ Run Actor
+              </button>
+            </div>
+          )}
+
+          {result && (
+            <div style={{ marginTop: "30px" }}>
+              <h4 style={styles.outputTitle}>
+                ✅ Output
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(JSON.stringify(result, null, 2));
+                    toast.info("📋 Output copied!");
+                  }}
+                  style={styles.copyButton}
+                >
+                  📋 Copy
+                </button>
+              </h4>
+              <div style={styles.outputBox}>
+                <pre>{JSON.stringify(result, null, 2)}</pre>
+              </div>
+            </div>
+          )}
+
+          <ToastContainer position="top-right" autoClose={3000} />
+          {error && <p style={{ color: "red", marginTop: "20px" }}>{error}</p>}
+        </div>
       </div>
     </div>
-  </div>
-);
-
+  );
 }
 
 const styles = {
@@ -248,7 +269,6 @@ const styles = {
     fontSize: "28px",
     marginBottom: "20px",
     color: "#99ccf5ff",
-    shadow : "0 0 10px rgba(151, 205, 249, 0.5)",
     textShadow: "0 0 10px rgba(151, 205, 249, 0.5)",
     fontWeight: "bold",
   },
@@ -283,7 +303,7 @@ const styles = {
     borderRadius: "5px",
     backgroundColor: "transparent",
     color: "#fff",
-    border: "1px solid #white",
+    border: "1px solid white",
   },
   subTitle: {
     marginBottom: "8px",
@@ -292,7 +312,6 @@ const styles = {
     textShadow: "0 0 10px rgba(151, 205, 249, 0.5)",
     fontSize: "20px",
     fontFamily: "'Segoe UI', sans-serif",
-
   },
   textarea: {
     width: "100%",
@@ -316,7 +335,6 @@ const styles = {
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: "10px",
-    color: "",
   },
   copyButton: {
     backgroundColor: "#444",

@@ -31,18 +31,18 @@ A full-stack web application to dynamically browse, configure, and execute **Api
 
 - Create a .env file inside the backend/ folder:
 
-    OPENROUTER_API_KEY=your_openrouter_api_key_here
+  OPENROUTER_API_KEY=your_openrouter_api_key_here
+  
 - 💡 Sign up at ([OpenRouter.ai](https://openrouter.ai)) and use your API key from their dashboard.
 
 3. Frontend Setup
-        cd ../frontend
-        npm install
 
-- Make sure you have a background image named bg.jpg inside the frontend/public/ folder.
+       cd ../frontend
+       npm install
 
 4. Run the App
 
-In two terminals, run both the frontend and backend:
+- In two terminals, run both the frontend and backend:
 
 # Terminal 1 (Backend)
         cd backend
@@ -59,7 +59,7 @@ In two terminals, run both the frontend and backend:
 
 - Actor ID format used:eloquent_mountain~apify-public-actor-scraper
 
-This actor outputs visible data and has a retrievable schema or sample inputs, making it ideal for integration testing.
+- This actor outputs visible data and has a retrievable schema or sample inputs, making it ideal for integration testing.
 
 ## 💡 Design Assumptions & Notes
 
@@ -97,6 +97,8 @@ The UI uses React, react-toastify, and custom styles with transparent background
 
     Styling: Custom inline styles + bg.jpg image
 
-📬 Applicant
+## 📬 Applicant
 
 Made by Anuhya Mattaparthi
+
+email: anuhya.mattaparthi@gmail.com
