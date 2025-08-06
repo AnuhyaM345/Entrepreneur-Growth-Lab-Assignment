@@ -1,7 +1,5 @@
-// Frontend React App for Apify Actor Runner
+// Final Frontend React App for Apify Actor Runner
 //frontend/src/App.js
-
-// frontend/src/App.js
 
 import React, { useState } from "react";
 import axios from "axios";
