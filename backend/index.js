@@ -1,9 +1,6 @@
 // Backend API for Apify Actors
 //backend/index.js
 
-// Backend API for Apify Actors
-// backend/index.js
-
 const express = require("express");
 const axios = require("axios");
 const cors = require("cors");
