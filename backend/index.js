@@ -167,7 +167,7 @@ app.post("/api/run", async (req, res) => {
   try {
     console.log("📤 Sending run request to Apify...");
     const runStart = await axios.post(
-      `https://api.apify.com/v2/acts/${actorId}/runs?memory=4096`,
+      `https://api.apify.com/v2/acts/${actorId}/runs?memory=512`,
       input,
       {
         headers: {
