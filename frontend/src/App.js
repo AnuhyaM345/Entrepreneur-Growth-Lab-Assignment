@@ -1,5 +1,5 @@
-// Final Frontend React App for Apify Actor Runner
-//frontend/src/App.js
+// Final Frontend React App for Apify Actor Runner (Vercel-compatible)
+// Updated to use backend hosted on Render
 
 import React, { useState } from "react";
 import axios from "axios";
@@ -7,6 +7,9 @@ import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import './index.css';
 import './App.css';
+
+// ✅ Update this to your deployed Render backend URL
+const BACKEND_URL = "https://your-render-backend-url.onrender.com";
 
 function App() {
   const [apiKey, setApiKey] = useState("");
@@ -21,7 +24,7 @@ function App() {
     setError("");
     setResult(null);
     try {
-      const res = await axios.post("http://localhost:5000/api/actors", { apiKey });
+      const res = await axios.post(`${BACKEND_URL}/api/actors`, { apiKey });
       setActors(res.data.data.items);
       toast.success("✅ Actors loaded!");
     } catch {
@@ -46,7 +49,7 @@ function App() {
     const loadingToast = toast.loading("📦 Loading schema...");
 
     try {
-      const res = await axios.post("http://localhost:5000/api/schema", {
+      const res = await axios.post(`${BACKEND_URL}/api/schema`, {
         apiKey,
         actorId,
       });
@@ -89,67 +92,63 @@ function App() {
   };
 
   const handleRunActor = async () => {
-  setError("");
-  setResult(null);
+    setError("");
+    setResult(null);
 
-  let input;
-  try {
-    input = JSON.parse(schema);
+    let input;
+    try {
+      input = JSON.parse(schema);
 
-    // Fix boolean fields if they are accidentally passed as strings
-    const booleanFields = [
-      "keepUrlFragments", "respectRobotsTxtFile", "debugLog", "ignoreSslErrors",
-      "forceResponseEncoding", "downloadMedia", "downloadCss", "closeCookieModals",
-      "headless", "browserLog", "useChrome", "ignoreCorsAndCsp"
-    ];
-    booleanFields.forEach((key) => {
-      if (key in input) {
-        if (typeof input[key] === "string") {
+      const booleanFields = [
+        "keepUrlFragments", "respectRobotsTxtFile", "debugLog", "ignoreSslErrors",
+        "forceResponseEncoding", "downloadMedia", "downloadCss", "closeCookieModals",
+        "headless", "browserLog", "useChrome", "ignoreCorsAndCsp"
+      ];
+
+      booleanFields.forEach((key) => {
+        if (key in input && typeof input[key] === "string") {
           input[key] = input[key].toLowerCase() === "true";
         }
+      });
+
+      if (input.startUrls && Array.isArray(input.startUrls)) {
+        input.startUrls = input.startUrls.map((url) =>
+          typeof url === "string" ? { url } : url
+        );
       }
-    });
 
-    // Ensure startUrls is an array of objects with "url"
-    if (input.startUrls && Array.isArray(input.startUrls)) {
-      input.startUrls = input.startUrls.map((url) =>
-        typeof url === "string" ? { url } : url
-      );
+      if (input.proxyConfiguration && typeof input.proxyConfiguration === "string") {
+        input.proxyConfiguration = { useApifyProxy: true };
+      }
+
+    } catch {
+      setError("❌ Invalid JSON input.");
+      return;
     }
 
-    // Fix proxyConfiguration if passed as a string
-    if (input.proxyConfiguration && typeof input.proxyConfiguration === "string") {
-      input.proxyConfiguration = { useApifyProxy: true };
-    }
-
-  } catch {
-    setError("❌ Invalid JSON input.");
-    return;
-  }
-
-  const loadingToast = toast.info("⏳ Please wait, running the actor...", {
-    autoClose: false,
-    closeOnClick: false,
-    draggable: false,
-    position: "top-right",
-  });
-
-  try {
-    const res = await axios.post("http://localhost:5000/api/run", {
-      apiKey,
-      actorId,
-      input,
+    const loadingToast = toast.info("⏳ Please wait, running the actor...", {
+      autoClose: false,
+      closeOnClick: false,
+      draggable: false,
+      position: "top-right",
     });
 
-    setResult(res.data.result);
-    toast.dismiss(loadingToast);
-    toast.success("🎉 Actor run completed! Check the output below.");
-  } catch (err) {
-    console.error("❌ Run failed:", err);
-    toast.dismiss(loadingToast);
-    setError("❌ Failed to run actor.");
-  }
-};
+    try {
+      const res = await axios.post(`${BACKEND_URL}/api/run`, {
+        apiKey,
+        actorId,
+        input,
+      });
+
+      setResult(res.data.result);
+      toast.dismiss(loadingToast);
+      toast.success("🎉 Actor run completed! Check the output below.");
+    } catch (err) {
+      console.error("❌ Run failed:", err);
+      toast.dismiss(loadingToast);
+      setError("❌ Failed to run actor.");
+    }
+  };
 
 
   return (
